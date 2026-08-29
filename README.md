@@ -9,12 +9,12 @@ Built on **Piper TTS** — free, fast, offline neural synthesis with 16 voices a
 
 ## Features
 
-✨ **High-quality neural voices** — Natural pronunciation, proper intonation  
-🌍 **Multilingual** — 8 languages (English, French, German, Italian, Spanish, Dutch, Swedish, plus AU/UK accents)  
-⚡ **Fast and offline** — No API calls needed, processes text in seconds  
-🎚️ **Volume control** — Adjust output level  
-💾 **Multiple formats** — Export as WAV or MP3  
-🖥️ **Two interfaces** — CLI for scripting, GUI for interactive use  
+**High-quality neural voices** — Natural pronunciation, proper intonation  
+**Multilingual** — 8 languages (English, French, German, Italian, Spanish, Dutch, Swedish, plus AU/UK accents)  
+**Fast and offline** — No API calls needed, processes text in seconds  
+**Volume control** — Adjust output level  
+**Multiple formats** — Export as WAV or MP3  
+**Two interfaces** — CLI for scripting, GUI for interactive use  
 
 ## Quick Start
 
@@ -78,12 +78,12 @@ python3 terminal_tts.py --list-voices
 tts/
 ├── terminal_tts.py     # CLI interface
 ├── gui_tts.py          # Desktop GUI
-├── config.py           # Voice definitions (coming soon)
-├── tts_engine.py       # Shared TTS core (coming soon)
+├── tts_config.py       # Shared voice definitions
+├── tts_engine.py       # Shared TTS synthesis core
 └── requirements.txt    # Dependencies
 ```
 
-**Next phase:** Refactoring for modularity — extracting TTS engine logic into reusable core to reduce duplication.
+Both `terminal_tts.py` and `gui_tts.py` share the same `PiperSynthesizer` engine (`tts_engine.py`) and voice list (`tts_config.py`), so there's no duplicated synthesis logic between the CLI and GUI.
 
 ## Requirements
 
@@ -111,16 +111,6 @@ tts/
 
 **MP3 export not working**
 - Install ffmpeg: `sudo apt install ffmpeg` (Linux) or `brew install ffmpeg` (macOS)
-
-## Development
-
-This project is transitioning to a more modular architecture:
-- Core TTS engine extraction
-- Unified voice configuration
-- Shared audio processing utilities
-- Better testability
-
-See issues/PRs for roadmap.
 
 ## License
 

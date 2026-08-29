@@ -18,110 +18,33 @@ import subprocess
 import tempfile
 import threading
 import tkinter as tk
-import wave
 from pathlib import Path
 from tkinter import ttk, filedialog, messagebox
 
 import pygame
-from piper.download_voices import download_voice
+
+from tts_config import PIPER_VOICES
+from tts_engine import PiperSynthesizer
 
 
-# Available piper voices (language_code-voice_name-quality)
-# Quality: low, medium, high (higher = larger download but better quality)
-PIPER_VOICES = [
-    ("en_US-lessac-medium", "Lessac (US, male, medium)"),
-    ("en_US-lessac-high", "Lessac (US, male, high)"),
-    ("en_US-libritts-high", "Libritts (US, female, high)"),
-    ("en_US-glow-tts-medium", "Glow TTS (US, female, medium)"),
-    ("en_GB-alan-medium", "Alan (UK, male, medium)"),
-    ("en_GB-alan-high", "Alan (UK, male, high)"),
-    ("en_GB-libby-medium", "Libby (UK, female, medium)"),
-    ("en_GB-southern_english_female-low", "Southern English Female (UK, low)"),
-    ("en_AU-kimberly-medium", "Kimberly (Australian, female, medium)"),
-    ("fr_FR-siwis-medium", "Siwis (French, female, medium)"),
-    ("de_DE-thorsten-medium", "Thorsten (German, male, medium)"),
-    ("it_IT-riccardo_fasol-medium", "Riccardo (Italian, male, medium)"),
-    ("es_ES-carla-medium", "Carla (Spanish, female, medium)"),
-    ("es_MX-jasmijn-medium", "Jasmijn (Mexican Spanish, female, medium)"),
-    ("nl_NL-mls-medium", "MLS (Dutch, medium)"),
-    ("sv_SE-nils_f_knut-medium", "Nils Knut (Swedish, male, medium)"),
-]
-
-
-class PiperWrapper:
-    """Wrapper for Piper TTS synthesis and playback using CLI."""
+class AudioPlayer:
+    """Wrapper for audio playback via pygame and synthesis via PiperSynthesizer."""
     
     def __init__(self):
+        self.synthesizer = PiperSynthesizer()
         self.current_playback = None
         try:
             pygame.mixer.init()
         except Exception as e:
             print(f"Warning: Could not initialize audio: {e}")
     
-    def ensure_voice_downloaded(self, voice_id):
-        """Ensure voice model is downloaded."""
-        models_dir = Path.home() / ".local" / "share" / "piper" / "models"
-        models_dir.mkdir(parents=True, exist_ok=True)
-        
-        model_file = models_dir / f"{voice_id}.onnx"
-        config_file = models_dir / f"{voice_id}.onnx.json"
-        
-        if not (model_file.exists() and config_file.exists()):
-            try:
-                download_voice(voice_id, models_dir)
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to download voice model '{voice_id}': {e}\n"
-                    f"Make sure you have internet connection."
-                )
-    
-    def synthesize_to_wav(self, text, voice_id, rate, volume, output_path):
-        """Synthesize text to a WAV file using piper CLI."""
-        # Ensure model is downloaded
-        self.ensure_voice_downloaded(voice_id)
-        
-        # Get full path to model file
-        models_dir = Path.home() / ".local" / "share" / "piper" / "models"
-        model_file = models_dir / f"{voice_id}.onnx"
-        
-        # Find piper - try in venv first, then in PATH
-        piper_cmd = "piper"
-        venv_piper = Path.home().parent / "Documents" / "CODE" / "tts" / "venv" / "bin" / "piper"
-        if venv_piper.exists():
-            piper_cmd = str(venv_piper)
-        
-        # Use piper CLI for synthesis
-        cmd = [piper_cmd, "--model", str(model_file), "--output-file", output_path]
-        
-        if volume != 1.0:
-            cmd.extend(["--volume", str(volume)])
-        
-        try:
-            result = subprocess.run(
-                cmd,
-                input=text,
-                capture_output=True,
-                text=True,
-                timeout=600
-            )
-            
-            if result.returncode != 0:
-                stderr_msg = result.stderr if result.stderr else result.stdout
-                raise RuntimeError(f"Piper synthesis failed:\n{stderr_msg}")
-                
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Piper synthesis timed out (exceeded 10 minutes)")
-        except FileNotFoundError:
-            raise RuntimeError("Piper command not found. Install with: pip install piper-tts")
-        except Exception as e:
-            if "RuntimeError" in str(type(e)):
-                raise
-            raise RuntimeError(f"Failed to synthesize audio: {e}")
+    def synthesize(self, text, voice_id, volume, output_path=None):
+        """Synthesize text to WAV file."""
+        return self.synthesizer.synthesize(text, voice_id, volume, output_path)
     
     def play_wav(self, wav_path):
         """Play a WAV file using pygame."""
         try:
-            # Stop any currently playing sound
             pygame.mixer.stop()
             sound = pygame.mixer.Sound(wav_path)
             sound.play()
@@ -138,7 +61,11 @@ class PiperWrapper:
         self.current_playback = None
 
 
-piper = PiperWrapper()
+# Global audio player instance
+audio_player = AudioPlayer()
+
+
+
 
 
 
@@ -360,8 +287,8 @@ class TTSApp(tk.Tk):
             try:
                 fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
                 os.close(fd)
-                piper.synthesize_to_wav(text, voice_id, self.rate_var.get(), self.volume_var.get(), tmp_wav)
-                piper.play_wav(tmp_wav)
+                audio_player.synthesize(text, voice_id, self.volume_var.get(), tmp_wav)
+                audio_player.play_wav(tmp_wav)
                 self.after(0, lambda: self._set_busy(False, "Ready."))
             except Exception as e:
                 self.after(0, lambda: self._speak_failed(e))
@@ -381,7 +308,7 @@ class TTSApp(tk.Tk):
 
     def stop_speaking(self):
         """Stop playback."""
-        piper.stop_playback()
+        audio_player.stop_playback()
         self._set_busy(False, "Stopped.")
 
     # ------------------------------------------------------------------
@@ -423,11 +350,11 @@ class TTSApp(tk.Tk):
             tmp_wav = None
             try:
                 if fmt == "wav":
-                    piper.synthesize_to_wav(content, voice_id, rate, volume, path)
+                    audio_player.synthesize(content, voice_id, volume, path)
                 else:
                     fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
                     os.close(fd)
-                    piper.synthesize_to_wav(content, voice_id, rate, volume, tmp_wav)
+                    audio_player.synthesize(content, voice_id, volume, tmp_wav)
                     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", tmp_wav, path]
                     result = subprocess.run(cmd, capture_output=True, text=True)
                     if result.returncode != 0:
