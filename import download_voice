@@ -1,0 +1,4 @@
+Help on function download_voice in module piper.download_voices:
+
+ddoowwnnllooaadd__vvooiiccee(voice: str, download_dir: pathlib.Path, force_redownload: bool = False) -> None
+    Download a voice model and config file to a directory.
