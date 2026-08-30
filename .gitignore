@@ -28,6 +28,9 @@ wheels/
 .idea/
 *.swp
 *.swo
+
+# Local test text files
+texts/
 *~
 
 # Audio files (generated)
