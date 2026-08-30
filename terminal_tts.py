@@ -11,6 +11,8 @@ Usage:
     python3 terminal_tts.py input.txt
     python3 terminal_tts.py input.txt -o narration.mp3
     python3 terminal_tts.py input.txt --voice "en_US-lessac-medium"
+    python3 terminal_tts.py chapter1.txt chapter2.txt chapter3.txt -o audio/  (batch mode)
+    python3 terminal_tts.py my_book_folder/ --voice "en_US-lessac-medium" -o audio/  (batch mode)
     python3 terminal_tts.py --list-voices
     python3 terminal_tts.py --list-voices --lang en
 
@@ -153,6 +155,31 @@ def read_text_file(path):
         return f.read().strip()
 
 
+def resolve_input_files(input_paths):
+    """Expand a mix of file paths and directories into a sorted list of .txt files."""
+    files = []
+    for path in input_paths:
+        if os.path.isdir(path):
+            files.extend(
+                str(p) for p in sorted(Path(path).glob("*.txt"))
+            )
+        else:
+            files.append(path)
+    return files
+
+
+def compute_output_path(input_file, output_arg, fmt, batch_mode):
+    """Determine the output audio path for a given input file."""
+    base = os.path.splitext(os.path.basename(input_file))[0]
+    if batch_mode:
+        out_dir = output_arg or os.path.dirname(input_file) or "."
+        os.makedirs(out_dir, exist_ok=True)
+        return os.path.join(out_dir, f"{base}.{fmt}")
+    if output_arg:
+        return output_arg
+    return f"{os.path.splitext(input_file)[0]}.{fmt}"
+
+
 def convert_wav_to(wav_path, output_path, fmt):
     """Convert WAV to another format using ffmpeg."""
     if not shutil.which("ffmpeg"):
@@ -172,10 +199,17 @@ def convert_wav_to(wav_path, output_path, fmt):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert a text file to speech, with interactive voice selection."
+        description="Convert text file(s) to speech, with interactive voice selection."
     )
-    parser.add_argument("input_file", nargs="?", help="Path to the text file to narrate")
-    parser.add_argument("-o", "--output", help="Output audio file path (default: <input>.wav)")
+    parser.add_argument(
+        "input_paths",
+        nargs="*",
+        help="Path(s) to text file(s) and/or directories to narrate (batch mode if more than one file resolves)",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        help="Output file path (single input) or output directory (batch mode)",
+    )
     parser.add_argument(
         "--format",
         choices=["wav", "mp3"],
@@ -198,57 +232,77 @@ def main():
             print_voice_table(voices)
         return
 
-    if not args.input_file:
-        parser.error("input_file is required (or use --list-voices)")
+    if not args.input_paths:
+        parser.error("input_paths is required (or use --list-voices)")
 
-    if not os.path.isfile(args.input_file):
-        print(f"Error: file not found: {args.input_file}")
+    input_files = resolve_input_files(args.input_paths)
+    if not input_files:
+        print("Error: no .txt files found in the given path(s).")
         sys.exit(1)
 
-    text = read_text_file(args.input_file)
-    if not text:
-        print("Error: input file is empty.")
+    missing = [f for f in input_files if not os.path.isfile(f)]
+    if missing:
+        print(f"Error: file(s) not found: {', '.join(missing)}")
         sys.exit(1)
 
-    print(f"Loaded '{args.input_file}' ({len(text)} characters).")
+    batch_mode = len(input_files) > 1
+    if batch_mode:
+        print(f"Batch mode: {len(input_files)} files to process.")
 
-    # --- Voice selection ---
+    # --- Voice selection (once, applied to every file) ---
     if args.voice:
         voice_id = args.voice
         print(f"Using voice: {voice_id}")
     else:
         voice_id = choose_voice_interactively(args.volume, args.speed)
 
-    # --- Determine output path/format ---
-    base, _ = os.path.splitext(args.input_file)
     fmt = args.format
-    output_path = args.output
-
-    if output_path and not fmt:
-        ext = os.path.splitext(output_path)[1].lstrip(".").lower()
+    if not fmt and args.output and not batch_mode:
+        ext = os.path.splitext(args.output)[1].lstrip(".").lower()
         fmt = ext if ext in ("wav", "mp3") else "wav"
     if not fmt:
         fmt = "wav"
-    if not output_path:
-        output_path = f"{base}.{fmt}"
 
-    # --- Synthesize ---
     print(f"\nGenerating audio with volume={args.volume}, speed={args.speed} ...")
 
-    if fmt == "wav":
-        synthesizer.synthesize(text, voice_id, args.volume, output_path, speed=args.speed)
-    else:
-        fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
-        os.close(fd)
+    succeeded, failed = [], []
+    for i, input_file in enumerate(input_files, start=1):
+        prefix = f"[{i}/{len(input_files)}] " if batch_mode else ""
         try:
-            synthesizer.synthesize(text, voice_id, args.volume, tmp_wav, speed=args.speed)
-            convert_wav_to(tmp_wav, output_path, fmt)
-        finally:
-            if os.path.exists(tmp_wav):
-                os.remove(tmp_wav)
+            text = read_text_file(input_file)
+            if not text:
+                raise ValueError("input file is empty")
 
-    size_kb = os.path.getsize(output_path) / 1024
-    print(f"\nDone! Saved to: {output_path} ({size_kb:.1f} KB)")
+            print(f"{prefix}{input_file} ({len(text)} characters)")
+            output_path = compute_output_path(input_file, args.output, fmt, batch_mode)
+
+            if fmt == "wav":
+                synthesizer.synthesize(text, voice_id, args.volume, output_path, speed=args.speed)
+            else:
+                fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
+                os.close(fd)
+                try:
+                    synthesizer.synthesize(text, voice_id, args.volume, tmp_wav, speed=args.speed)
+                    convert_wav_to(tmp_wav, output_path, fmt)
+                finally:
+                    if os.path.exists(tmp_wav):
+                        os.remove(tmp_wav)
+
+            size_kb = os.path.getsize(output_path) / 1024
+            print(f"  -> Saved to: {output_path} ({size_kb:.1f} KB)")
+            succeeded.append(input_file)
+        except Exception as e:
+            print(f"  Error processing '{input_file}': {e}")
+            failed.append(input_file)
+            if not batch_mode:
+                sys.exit(1)
+
+    if batch_mode:
+        print(f"\nDone! {len(succeeded)} succeeded, {len(failed)} failed.")
+        if failed:
+            sys.exit(1)
+    else:
+        print("\nDone!")
 
 
 if __name__ == "__main__":
