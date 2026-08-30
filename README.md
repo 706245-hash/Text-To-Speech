@@ -1,116 +1,160 @@
-# Text-to-Speech App
+# Piper TTS Studio
 
-Professional neural text-to-speech with natural-sounding voices. Two interfaces:
+A Python-based text-to-speech app built on Piper TTS with both a terminal interface and a desktop GUI. It focuses on a clean shared engine, local voice caching, batch generation, and quick export workflows.
 
-- **`terminal_tts.py`** — CLI: convert text files to audio with interactive voice selection and filtering
-- **`gui_tts.py`** — Desktop app: type or load text, customize voice/volume, preview, and export
+## Interfaces
 
-Built on **Piper TTS** — free, fast, offline neural synthesis with 16 voices across 8 languages.
+- `terminal_tts.py` — command-line synthesis, batch processing, cache management, and quick voice selection
+- `gui_tts.py` — Tkinter desktop app for typing/loading text, voice selection, preview, export, presets, and recent files
 
 ## Features
 
-**High-quality neural voices** — Natural pronunciation, proper intonation  
-**Multilingual** — 8 languages (English, French, German, Italian, Spanish, Dutch, Swedish, plus AU/UK accents)  
-**Fast and offline** — No API calls needed, processes text in seconds  
-**Volume control** — Adjust output level  
-**Multiple formats** — Export as WAV or MP3  
-**Two interfaces** — CLI for scripting, GUI for interactive use  
+- High-quality Piper neural voices with offline synthesis
+- 16 bundled voice models across multiple languages and accents
+- Adjustable speed and volume
+- WAV and MP3 export
+- Batch processing for folders or multiple input files
+- Local model support via a direct `.onnx` path
+- Persistent user defaults for voice, volume, speed, and format
+- Recent-file tracking and saved presets in the GUI
+- Cached downloaded models with list/remove support
+- Shared synthesis engine so CLI and GUI stay consistent
 
-## Quick Start
+## Quick start
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
-**Linux/Ubuntu:**
+Linux/macOS:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+If you need GUI support and MP3 export:
+
 ```bash
 sudo apt install python3-tk ffmpeg
-pip install -r requirements.txt
 ```
 
-**macOS:**
+### 2. Run the GUI
+
 ```bash
-brew install ffmpeg
-pip install -r requirements.txt
+python3 gui_tts.py
 ```
 
-**Windows:**
-- Download [ffmpeg](https://ffmpeg.org/download.html) or install via Scoop: `scoop install ffmpeg`
-- Install Python packages: `pip install -r requirements.txt`
-
-### 2. Terminal CLI
+### 3. Run the CLI
 
 ```bash
-# Interactive mode
-python3 terminal_tts.py my_story.txt
+# Basic conversion
+python3 terminal_tts.py input.txt -o output.wav
 
-# Specify voice and options
-python3 terminal_tts.py input.txt -o narration.wav --voice en_US-lessac-medium --volume 0.9
+# Use a specific bundled voice
+python3 terminal_tts.py input.txt -o output.wav --voice en_US-lessac-medium
+
+# Use a local .onnx model
+python3 terminal_tts.py input.txt -o output.wav --voice /path/to/custom_voice.onnx
+
+# Batch mode from a folder
+python3 terminal_tts.py texts/ -o output_dir --voice en_US-lessac-medium
 
 # List available voices
 python3 terminal_tts.py --list-voices
+
+# Show saved defaults
+python3 terminal_tts.py --show-config
 ```
 
-## Available Voices
+## Voice Model Behavior
 
-| Language | Code | Voice |
-|----------|------|-------|
-| **English (US)** | en_US-lessac-medium | Lessac (male, default) |
-| | en_US-lessac-high | Lessac (male, high quality) |
-| | en_US-libritts-high | Libritts (female, high) |
-| | en_US-glow-tts-medium | Glow TTS (female) |
-| **English (UK)** | en_GB-alan-medium | Alan (male) |
-| | en_GB-alan-high | Alan (male, high) |
-| | en_GB-libby-medium | Libby (female) |
-| | en_GB-southern_english_female-low | Southern English (female) |
-| **English (AU)** | en_AU-kimberly-medium | Kimberly (female) |
-| **French** | fr_FR-siwis-medium | Siwis (female) |
-| **German** | de_DE-thorsten-medium | Thorsten (male) |
-| **Italian** | it_IT-riccardo_fasol-medium | Riccardo (male) |
-| **Spanish** | es_ES-carla-medium | Carla (female) |
-| **Spanish (MX)** | es_MX-jasmijn-medium | Jasmijn (female) |
-| **Dutch** | nl_NL-mls-medium | MLS (medium) |
-| **Swedish** | sv_SE-nils_f_knut-medium | Nils Knut (male) |
+The app uses Piper models stored in:
 
-**Note:** Voice models are auto-downloaded on first use (~20-50 MB each) and cached in `~/.local/share/piper/models/`.
+```bash
+~/.local/share/piper/models/
+```
+
+Models are downloaded automatically on first use when a bundled voice is selected. You can also point `--voice` directly at a local `.onnx` file, which skips the download step for custom or manually installed models.
+
+## CLI capabilities
+
+- `--voice` accepts either a known voice ID or a local `.onnx` file path
+- `--speed` supports multipliers such as `0.5`, `1.0`, `1.5`, `2.0`
+- `--volume` accepts values from `0.0` to `1.0`
+- `--format wav` or `--format mp3`
+- `--list-downloaded` shows cached model sizes
+- `--clear-cache` removes one or all downloaded models
+- `--save-config` stores default TTS settings for later use
+
+## GUI capabilities
+
+- Text input with scrollable editing area
+- Voice filter and selection
+- Speed and volume controls
+- Preview text or selected voice
+- Pause/resume playback while sound is active
+- Stop playback at any time
+- Export to WAV or MP3
+- Save and load preset combinations
+- Track and reopen recent text files
 
 ## Architecture
 
-```
+```text
 tts/
-├── terminal_tts.py     # CLI interface
-├── gui_tts.py          # Desktop GUI
-├── tts_config.py       # Shared voice definitions
-├── tts_engine.py       # Shared TTS synthesis core
-└── requirements.txt    # Dependencies
+├── terminal_tts.py     # CLI entry point
+├── gui_tts.py          # Desktop application
+├── tts_engine.py       # Shared Piper synthesis engine
+├── tts_config.py       # Shared voice catalog and config helpers
+├── requirements.txt    # Python dependencies
+├── input.txt           # Example input file
+└── texts/              # Example output/test text area
 ```
-
-Both `terminal_tts.py` and `gui_tts.py` share the same `PiperSynthesizer` engine (`tts_engine.py`) and voice list (`tts_config.py`), so there's no duplicated synthesis logic between the CLI and GUI.
 
 ## Requirements
 
-- Python 3.8+
-- piper-tts (neural TTS engine)
-- pygame (audio playback)
-- tkinter (GUI only)
-- ffmpeg (MP3 export)
+- Python 3.11+
+- Piper TTS
+- pygame
+- tkinter
+- ffmpeg for MP3 export
 
 ## Troubleshooting
 
-**"Piper command not found"**
-- Ensure `piper-tts` is installed: `pip install piper-tts`
-- If using venv, activate it: `source venv/bin/activate`
+### Piper command not found
 
-**"Unable to find voice"**
-- Check internet connection (models auto-download on first use)
-- Models stored in: `~/.local/share/piper/models/`
-- Try deleting the model and re-running to re-download
+```bash
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
-**Audio playback fails**
-- Install pygame: `pip install pygame`
-- Check volume isn't muted
-- On headless servers, use `-o filename.wav` to save instead of playing
+If needed, make sure the Piper CLI is available on your PATH.
 
-**MP3 export not working**
-- Install ffmpeg: `sudo apt install ffmpeg` (Linux) or `brew install ffmpeg` (macOS)
+### Voice model download issues
+
+- Check your internet connection
+- Confirm the environment has write access to `~/.local/share/piper/models/`
+- For custom local voices, pass the `.onnx` path directly with `--voice`
+
+### Audio playback is missing
+
+- Install `pygame`
+- Ensure your system audio is available
+- If playback is not possible in the current environment, use export to save audio to disk
+
+### MP3 export fails
+
+Install ffmpeg:
+
+```bash
+sudo apt install ffmpeg
+```
+
+or on macOS:
+
+```bash
+brew install ffmpeg
+```
 
 ## License
 
