@@ -95,8 +95,8 @@ class TTSApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Text to Speech")
-        self.geometry("780x620")
-        self.minsize(640, 520)
+        self.geometry("860x620")
+        self.minsize(760, 520)
 
         self.voices = []           # all voice objects from the engine
         self.filtered_voices = []  # currently filtered/displayed subset
@@ -105,6 +105,7 @@ class TTSApp(tk.Tk):
         self.presets = self._load_presets()
 
         self._build_ui()
+        self.after(50, self._adjust_window_to_fit)
         self._load_voices_async()
 
     # ------------------------------------------------------------------
@@ -135,8 +136,15 @@ class TTSApp(tk.Tk):
         self.char_count_var = tk.StringVar(value="0 characters")
         ttk.Label(toolbar, textvariable=self.char_count_var).pack(side="right")
 
-        self.text_box = tk.Text(text_frame, wrap="word", undo=True, font=("Sans", 11))
-        self.text_box.pack(fill="both", expand=True, padx=6, pady=6)
+        text_container = ttk.Frame(text_frame)
+        text_container.pack(fill="both", expand=True, padx=6, pady=6)
+
+        self.text_box = tk.Text(text_container, wrap="word", undo=True, height=12, font=("Sans", 11))
+        self.text_box.pack(side="left", fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(text_container, orient="vertical", command=self.text_box.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.text_box.configure(yscrollcommand=scrollbar.set)
         self.text_box.bind("<<Modified>>", self._on_text_modified)
 
         # --- Voice selection ---
@@ -193,6 +201,13 @@ class TTSApp(tk.Tk):
 
         self.progress = ttk.Progressbar(self, mode="indeterminate")
         # packed/unpacked dynamically while busy
+
+    def _adjust_window_to_fit(self):
+        self.update_idletasks()
+        width = max(self.winfo_reqwidth() + 20, 760)
+        height = min(max(self.winfo_reqheight() + 20, 540), 720)
+        self.minsize(760, 520)
+        self.geometry(f"{width}x{height}")
 
     def _add_slider(self, parent, label, var, frm, to, is_float=False):
         row = ttk.Frame(parent)
