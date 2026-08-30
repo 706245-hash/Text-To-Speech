@@ -6,6 +6,7 @@ Core TTS synthesis engine for Piper neural voices.
 Handles model downloading, voice synthesis, and audio processing.
 """
 
+import logging
 import os
 import subprocess
 import tempfile
@@ -21,6 +22,9 @@ try:
     from tts_config import MODELS_DIR, DEFAULT_VOICE
 except ImportError:
     from .tts_config import MODELS_DIR, DEFAULT_VOICE
+
+
+logger = logging.getLogger(__name__)
 
 
 class PiperSynthesizer:
@@ -56,6 +60,13 @@ class PiperSynthesizer:
         self._piper_cmd = "piper"
         return self._piper_cmd
     
+    def resolve_model_path(self, voice_id):
+        """Resolve a bundled voice ID or a local .onnx path to a model file."""
+        candidate = Path(voice_id)
+        if candidate.suffix.lower() == ".onnx" and candidate.exists():
+            return candidate
+        return self.models_dir / f"{voice_id}.onnx"
+
     def ensure_model_downloaded(self, voice_id):
         """
         Ensure a voice model is downloaded and ready.
@@ -66,6 +77,9 @@ class PiperSynthesizer:
         Raises:
             RuntimeError: If model cannot be downloaded
         """
+        if Path(voice_id).suffix.lower() == ".onnx" and Path(voice_id).exists():
+            return
+
         model_file = self.models_dir / f"{voice_id}.onnx"
         config_file = self.models_dir / f"{voice_id}.onnx.json"
         
@@ -78,12 +92,13 @@ class PiperSynthesizer:
                 f"Install piper-tts with: pip install piper-tts"
             )
         
-        print(f"  Downloading voice model '{voice_id}'...")
-        print(f"  (This may take a few minutes on first use)")
+        logger = logging.getLogger(__name__)
+        logger.info("Downloading voice model '%s'...", voice_id)
+        logger.info("This may take a few minutes on first use.")
         
         try:
             download_voice(voice_id, self.models_dir)
-            print(f"  Download complete!")
+            logger.info("Download complete for voice model '%s'.", voice_id)
         except Exception as e:
             raise RuntimeError(
                 f"Failed to download voice model '{voice_id}': {e}\n"
@@ -157,7 +172,7 @@ class PiperSynthesizer:
             fd, output_path = tempfile.mkstemp(suffix=".wav")
             os.close(fd)
         
-        model_file = self.models_dir / f"{voice_id}.onnx"
+        model_file = self.resolve_model_path(voice_id)
         
         # Build piper command
         piper_cmd = self._find_piper_command()
@@ -171,7 +186,8 @@ class PiperSynthesizer:
             cmd.extend(["--length-scale", str(1.0 / speed)])
         
         try:
-            print(f"  Synthesizing audio...", flush=True)
+            logger = logging.getLogger(__name__)
+            logger.info("Synthesizing audio for voice '%s'.", voice_id)
             result = subprocess.run(
                 cmd,
                 input=text,
@@ -184,7 +200,7 @@ class PiperSynthesizer:
                 stderr_msg = result.stderr if result.stderr else result.stdout
                 raise RuntimeError(f"Piper synthesis failed:\n{stderr_msg}")
             
-            print(f"  Done!", flush=True)
+            logger.info("Audio synthesis complete for voice '%s'.", voice_id)
             return output_path
             
         except subprocess.TimeoutExpired:
@@ -223,4 +239,4 @@ class PiperSynthesizer:
                 wav_file.rewind()
                 wav_file.writeframes(bytes(audio_data))
         except Exception as e:
-            print(f"  Warning: Could not apply volume: {e}", flush=True)
+            logging.getLogger(__name__).warning("Could not apply volume to WAV file '%s': %s", wav_path, e)

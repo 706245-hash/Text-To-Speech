@@ -279,7 +279,7 @@ def main():
         default=None,
         help="Output audio format (inferred from --output extension if omitted; default wav)",
     )
-    parser.add_argument("--voice", help="Voice ID to use directly (skips interactive picker)")
+    parser.add_argument("--voice", help="Voice ID or local .onnx model path to use directly (skips interactive picker)")
     parser.add_argument(
         "--pick-voice", action="store_true",
         help="Force the interactive voice picker, even if a default voice is saved in config",

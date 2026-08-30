@@ -12,6 +12,7 @@ and ffmpeg on PATH if exporting to MP3.
 """
 
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -19,7 +20,7 @@ import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 
 import pygame
 
@@ -33,6 +34,8 @@ class AudioPlayer:
     def __init__(self):
         self.synthesizer = PiperSynthesizer()
         self.current_playback = None
+        self.current_channel = None
+        self.paused = False
         try:
             pygame.mixer.init()
         except Exception as e:
@@ -47,18 +50,37 @@ class AudioPlayer:
         try:
             pygame.mixer.stop()
             sound = pygame.mixer.Sound(wav_path)
-            sound.play()
+            channel = pygame.mixer.find_channel(True)
+            if channel is None:
+                raise RuntimeError("No available audio channel found")
+            channel.play(sound)
             self.current_playback = sound
+            self.current_channel = channel
+            self.paused = False
         except Exception as e:
             raise RuntimeError(f"Failed to play audio: {e}")
+
+    def pause_playback(self):
+        """Pause the active playback if possible."""
+        if self.current_channel is not None and self.current_playback is not None:
+            self.current_channel.pause()
+            self.paused = True
+
+    def resume_playback(self):
+        """Resume playback after pausing."""
+        if self.current_channel is not None and self.current_playback is not None:
+            self.current_channel.unpause()
+            self.paused = False
     
     def stop_playback(self):
         """Stop playback."""
         try:
             pygame.mixer.stop()
-        except:
+        except Exception:
             pass
         self.current_playback = None
+        self.current_channel = None
+        self.paused = False
 
 
 # Global audio player instance
@@ -79,6 +101,8 @@ class TTSApp(tk.Tk):
         self.voices = []           # all voice objects from the engine
         self.filtered_voices = []  # currently filtered/displayed subset
         self.busy = False          # true while a background TTS job runs
+        self.recent_files = self._load_recent_files()
+        self.presets = self._load_presets()
 
         self._build_ui()
         self._load_voices_async()
@@ -98,6 +122,16 @@ class TTSApp(tk.Tk):
         toolbar.pack(fill="x", padx=6, pady=(6, 0))
         ttk.Button(toolbar, text="Load Text File...", command=self.load_text_file).pack(side="left")
         ttk.Button(toolbar, text="Clear", command=self.clear_text).pack(side="left", padx=(6, 0))
+
+        self.recent_var = tk.StringVar()
+        self.recent_combo = ttk.Combobox(toolbar, textvariable=self.recent_var, width=35, state="readonly")
+        self.recent_combo.pack(side="left", padx=(12, 0))
+        self.recent_combo.bind("<Return>", lambda _evt: self.open_recent_file())
+        ttk.Button(toolbar, text="Open Recent", command=self.open_recent_file).pack(side="left", padx=(6, 0))
+        self.recent_combo["values"] = self.recent_files
+        if self.recent_files:
+            self.recent_combo.current(0)
+
         self.char_count_var = tk.StringVar(value="0 characters")
         ttk.Label(toolbar, textvariable=self.char_count_var).pack(side="right")
 
@@ -123,6 +157,15 @@ class TTSApp(tk.Tk):
         self.voice_combo.pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(combo_row, text="Preview Voice", command=self.preview_voice).pack(side="left")
 
+        preset_row = ttk.Frame(voice_frame)
+        preset_row.pack(fill="x", padx=6, pady=(0, 6))
+        self.preset_var = tk.StringVar()
+        self.preset_combo = ttk.Combobox(preset_row, textvariable=self.preset_var, state="readonly", width=28)
+        self.preset_combo.pack(side="left")
+        ttk.Button(preset_row, text="Save Preset", command=self.save_current_preset).pack(side="left", padx=(6, 0))
+        ttk.Button(preset_row, text="Load Preset", command=self.load_selected_preset).pack(side="left", padx=(6, 0))
+        self._refresh_presets()
+
         # --- Customisation sliders ---
         controls_frame = ttk.LabelFrame(self, text="Customise")
         controls_frame.pack(fill="x", **pad)
@@ -137,7 +180,9 @@ class TTSApp(tk.Tk):
         action_frame = ttk.Frame(self)
         action_frame.pack(fill="x", **pad)
         ttk.Button(action_frame, text="Preview Text", command=self.preview_text).pack(side="left")
-        ttk.Button(action_frame, text="Stop", command=self.stop_speaking).pack(side="left", padx=6)
+        self.pause_btn = ttk.Button(action_frame, text="Pause", command=self.toggle_pause)
+        self.pause_btn.pack(side="left", padx=6)
+        ttk.Button(action_frame, text="Stop", command=self.stop_speaking).pack(side="left")
         self.export_btn = ttk.Button(action_frame, text="Export Audio...", command=self.export_audio)
         self.export_btn.pack(side="right")
 
@@ -220,6 +265,39 @@ class TTSApp(tk.Tk):
         content = self.text_box.get("1.0", "end-1c")
         self.char_count_var.set(f"{len(content)} characters")
 
+    def _load_recent_files(self):
+        config_dir = Path.home() / ".config" / "tts"
+        path = config_dir / "recent_files.json"
+        if not path.exists():
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return [str(p) for p in data if str(p)]
+        except (OSError, json.JSONDecodeError):
+            pass
+        return []
+
+    def _save_recent_files(self):
+        config_dir = Path.home() / ".config" / "tts"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        path = config_dir / "recent_files.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.recent_files[:10], f, indent=2)
+
+    def _remember_recent_file(self, path):
+        if not path:
+            return
+        canonical = os.path.abspath(path)
+        self.recent_files = [item for item in self.recent_files if os.path.abspath(item) != canonical]
+        self.recent_files.insert(0, canonical)
+        self.recent_files = self.recent_files[:10]
+        self._save_recent_files()
+        self.recent_combo["values"] = self.recent_files
+        if self.recent_files:
+            self.recent_combo.current(0)
+
     def load_text_file(self):
         path = filedialog.askopenfilename(
             title="Choose a text file",
@@ -235,10 +313,98 @@ class TTSApp(tk.Tk):
             return
         self.text_box.delete("1.0", "end")
         self.text_box.insert("1.0", content)
+        self._remember_recent_file(path)
         self.status_var.set(f"Loaded: {os.path.basename(path)}")
+
+    def open_recent_file(self):
+        path = self.recent_var.get()
+        if not path:
+            return
+        if not os.path.exists(path):
+            messagebox.showwarning("Missing file", f"Recent file no longer exists:\n{path}")
+            self.recent_files = [item for item in self.recent_files if item != path]
+            self._save_recent_files()
+            self._refresh_recent_files()
+            return
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not read file:\n{e}")
+            return
+        self.text_box.delete("1.0", "end")
+        self.text_box.insert("1.0", content)
+        self.status_var.set(f"Loaded recent: {os.path.basename(path)}")
 
     def clear_text(self):
         self.text_box.delete("1.0", "end")
+
+    def _load_presets(self):
+        config_dir = Path.home() / ".config" / "tts"
+        path = config_dir / "presets.json"
+        if not path.exists():
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except (OSError, json.JSONDecodeError):
+            pass
+        return {}
+
+    def _save_presets(self):
+        config_dir = Path.home() / ".config" / "tts"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        path = config_dir / "presets.json"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self.presets, f, indent=2)
+
+    def _refresh_recent_files(self):
+        self.recent_combo["values"] = self.recent_files
+        if self.recent_files:
+            self.recent_combo.current(0)
+
+    def _refresh_presets(self):
+        names = list(self.presets.keys())
+        self.preset_combo["values"] = names
+        if names:
+            self.preset_combo.current(0)
+        else:
+            self.preset_combo.set("")
+
+    def save_current_preset(self):
+        name = simpledialog.askstring("Save preset", "Preset name:", parent=self)
+        if not name:
+            return
+        self.presets[name.strip()] = {
+            "voice_id": self._selected_voice_id(),
+            "volume": self.volume_var.get(),
+            "speed": self.rate_var.get(),
+        }
+        self._save_presets()
+        self._refresh_presets()
+        self.status_var.set(f"Saved preset: {name.strip()}")
+
+    def load_selected_preset(self):
+        preset_name = self.preset_var.get()
+        if not preset_name or preset_name not in self.presets:
+            return
+        preset = self.presets[preset_name]
+        voice_id = preset.get("voice_id")
+        if voice_id:
+            values = [vid for vid, _ in self.filtered_voices]
+            for idx, vid in enumerate(values):
+                if vid == voice_id:
+                    self.voice_combo.current(idx)
+                    break
+        volume = preset.get("volume")
+        speed = preset.get("speed")
+        if volume is not None:
+            self.volume_var.set(float(volume))
+        if speed is not None:
+            self.rate_var.set(float(speed))
+        self.status_var.set(f"Loaded preset: {preset_name}")
 
     # ------------------------------------------------------------------
     # Busy state helpers
@@ -248,6 +414,7 @@ class TTSApp(tk.Tk):
         self.busy = busy
         state = "disabled" if busy else "normal"
         self.export_btn.config(state=state)
+        self.pause_btn.config(state=state)
         if busy:
             self.progress.pack(fill="x", side="bottom")
             self.progress.start(12)
@@ -306,9 +473,20 @@ class TTSApp(tk.Tk):
             "You can still use Export Audio to save it to a file.",
         )
 
+    def toggle_pause(self):
+        if audio_player.paused:
+            audio_player.resume_playback()
+            self.pause_btn.config(text="Pause")
+            self.status_var.set("Playback resumed.")
+        else:
+            audio_player.pause_playback()
+            self.pause_btn.config(text="Resume")
+            self.status_var.set("Playback paused.")
+
     def stop_speaking(self):
         """Stop playback."""
         audio_player.stop_playback()
+        self.pause_btn.config(text="Pause")
         self._set_busy(False, "Stopped.")
 
     # ------------------------------------------------------------------
