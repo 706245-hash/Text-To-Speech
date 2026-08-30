@@ -18,6 +18,8 @@ Usage:
     python3 terminal_tts.py --list-downloaded
     python3 terminal_tts.py --clear-cache en_US-lessac-medium
     python3 terminal_tts.py --clear-cache
+    python3 terminal_tts.py input.txt --save-config  (remember voice/volume/speed/format as defaults)
+    python3 terminal_tts.py --show-config
 
 Requires: piper-tts (pip install piper-tts), pygame (pip install pygame),
 and ffmpeg on PATH if exporting to a format other than WAV.
@@ -31,7 +33,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-from tts_config import PIPER_VOICES, filter_voices as config_filter_voices
+from tts_config import (
+    PIPER_VOICES,
+    filter_voices as config_filter_voices,
+    load_config,
+    save_config,
+    CONFIG_FILE,
+)
 from tts_engine import PiperSynthesizer
 
 
@@ -272,8 +280,12 @@ def main():
         help="Output audio format (inferred from --output extension if omitted; default wav)",
     )
     parser.add_argument("--voice", help="Voice ID to use directly (skips interactive picker)")
-    parser.add_argument("--volume", type=float, default=1.0, help="Volume, 0.0 to 1.0 (default 1.0)")
-    parser.add_argument("--speed", type=float, default=1.0, help="Speech speed multiplier, e.g. 0.5=half speed, 2.0=2x faster (default 1.0)")
+    parser.add_argument(
+        "--pick-voice", action="store_true",
+        help="Force the interactive voice picker, even if a default voice is saved in config",
+    )
+    parser.add_argument("--volume", type=float, default=None, help="Volume, 0.0 to 1.0 (default from config, else 1.0)")
+    parser.add_argument("--speed", type=float, default=None, help="Speech speed multiplier, e.g. 0.5=half speed, 2.0=2x faster (default from config, else 1.0)")
     parser.add_argument("--list-voices", action="store_true", help="List available voices and exit")
     parser.add_argument("--lang", help="Filter --list-voices by language/name substring")
     parser.add_argument(
@@ -284,8 +296,29 @@ def main():
         "--clear-cache", nargs="?", const="__ALL__", metavar="VOICE_ID",
         help="Remove a downloaded voice model (or all of them if no VOICE_ID given) and exit",
     )
+    parser.add_argument(
+        "--save-config", action="store_true",
+        help="Save the voice/volume/speed/format used in this run as the new defaults",
+    )
+    parser.add_argument(
+        "--show-config", action="store_true",
+        help="Print the current saved default settings and exit",
+    )
 
     args = parser.parse_args()
+
+    config = load_config()
+
+    if args.show_config:
+        print(f"Config file: {CONFIG_FILE}")
+        if CONFIG_FILE.exists():
+            for key, value in config.items():
+                print(f"  {key}: {value}")
+        else:
+            print("  (no config file saved yet; showing built-in defaults)")
+            for key, value in config.items():
+                print(f"  {key}: {value}")
+        return
 
     if args.list_downloaded:
         print_downloaded_voices()
@@ -324,17 +357,29 @@ def main():
     if args.voice:
         voice_id = args.voice
         print(f"Using voice: {voice_id}")
+    elif not args.pick_voice and CONFIG_FILE.exists() and config.get("voice"):
+        voice_id = config["voice"]
+        print(f"Using saved default voice: {voice_id} (use --pick-voice to choose a different one)")
     else:
-        voice_id = choose_voice_interactively(args.volume, args.speed)
+        volume_for_preview = args.volume if args.volume is not None else config["volume"]
+        speed_for_preview = args.speed if args.speed is not None else config["speed"]
+        voice_id = choose_voice_interactively(volume_for_preview, speed_for_preview)
+
+    volume = args.volume if args.volume is not None else config["volume"]
+    speed = args.speed if args.speed is not None else config["speed"]
 
     fmt = args.format
     if not fmt and args.output and not batch_mode:
         ext = os.path.splitext(args.output)[1].lstrip(".").lower()
         fmt = ext if ext in ("wav", "mp3") else "wav"
     if not fmt:
-        fmt = "wav"
+        fmt = config["format"]
 
-    print(f"\nGenerating audio with volume={args.volume}, speed={args.speed} ...")
+    if args.save_config:
+        save_config({"voice": voice_id, "volume": volume, "speed": speed, "format": fmt})
+        print(f"Saved defaults to {CONFIG_FILE}")
+
+    print(f"\nGenerating audio with volume={volume}, speed={speed} ...")
 
     succeeded, failed = [], []
     for i, input_file in enumerate(input_files, start=1):
@@ -348,12 +393,12 @@ def main():
             output_path = compute_output_path(input_file, args.output, fmt, batch_mode)
 
             if fmt == "wav":
-                synthesizer.synthesize(text, voice_id, args.volume, output_path, speed=args.speed)
+                synthesizer.synthesize(text, voice_id, volume, output_path, speed=speed)
             else:
                 fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
                 os.close(fd)
                 try:
-                    synthesizer.synthesize(text, voice_id, args.volume, tmp_wav, speed=args.speed)
+                    synthesizer.synthesize(text, voice_id, volume, tmp_wav, speed=speed)
                     convert_wav_to(tmp_wav, output_path, fmt)
                 finally:
                     if os.path.exists(tmp_wav):
