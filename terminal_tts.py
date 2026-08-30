@@ -15,6 +15,9 @@ Usage:
     python3 terminal_tts.py my_book_folder/ --voice "en_US-lessac-medium" -o audio/  (batch mode)
     python3 terminal_tts.py --list-voices
     python3 terminal_tts.py --list-voices --lang en
+    python3 terminal_tts.py --list-downloaded
+    python3 terminal_tts.py --clear-cache en_US-lessac-medium
+    python3 terminal_tts.py --clear-cache
 
 Requires: piper-tts (pip install piper-tts), pygame (pip install pygame),
 and ffmpeg on PATH if exporting to a format other than WAV.
@@ -56,6 +59,58 @@ def filter_voices(voices, query):
         if q in haystack:
             out.append((vid, name))
     return out
+
+
+def format_size(size_bytes):
+    """Format a byte count as a human-readable string."""
+    size = float(size_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+
+def print_downloaded_voices():
+    """Print the list of locally downloaded voice models with sizes."""
+    downloaded = synthesizer.list_downloaded_voices()
+    if not downloaded:
+        print("No voice models downloaded yet.")
+        return
+    total = 0
+    print(f"{'Voice ID':<35}{'Size':>10}")
+    print("-" * 45)
+    for voice_id, size in downloaded:
+        print(f"{voice_id:<35}{format_size(size):>10}")
+        total += size
+    print("-" * 45)
+    print(f"{'Total':<35}{format_size(total):>10}")
+    print(f"\nStored in: {synthesizer.models_dir}")
+
+
+def clear_cache(voice_id):
+    """Remove a single downloaded voice model, or all of them if voice_id is None."""
+    if voice_id:
+        if synthesizer.remove_model(voice_id):
+            print(f"Removed voice model: {voice_id}")
+        else:
+            print(f"No downloaded model found for: {voice_id}")
+        return
+
+    downloaded = synthesizer.list_downloaded_voices()
+    if not downloaded:
+        print("No voice models downloaded yet.")
+        return
+
+    print(f"This will remove {len(downloaded)} downloaded voice model(s):")
+    for vid, size in downloaded:
+        print(f"  - {vid} ({format_size(size)})")
+    confirm = input("Continue? [y/N] ").strip().lower()
+    if confirm not in ("y", "yes"):
+        print("Cancelled.")
+        return
+    for vid, _ in downloaded:
+        synthesizer.remove_model(vid)
+    print(f"Removed {len(downloaded)} voice model(s).")
 
 
 def print_voice_table(voices, start_index=0):
@@ -221,8 +276,24 @@ def main():
     parser.add_argument("--speed", type=float, default=1.0, help="Speech speed multiplier, e.g. 0.5=half speed, 2.0=2x faster (default 1.0)")
     parser.add_argument("--list-voices", action="store_true", help="List available voices and exit")
     parser.add_argument("--lang", help="Filter --list-voices by language/name substring")
+    parser.add_argument(
+        "--list-downloaded", action="store_true",
+        help="List voice models already downloaded to disk, with sizes, and exit",
+    )
+    parser.add_argument(
+        "--clear-cache", nargs="?", const="__ALL__", metavar="VOICE_ID",
+        help="Remove a downloaded voice model (or all of them if no VOICE_ID given) and exit",
+    )
 
     args = parser.parse_args()
+
+    if args.list_downloaded:
+        print_downloaded_voices()
+        return
+
+    if args.clear_cache is not None:
+        clear_cache(None if args.clear_cache == "__ALL__" else args.clear_cache)
+        return
 
     if args.list_voices:
         voices = filter_voices(get_voices(), args.lang)
