@@ -90,6 +90,48 @@ class PiperSynthesizer:
                 f"Make sure you have internet connection and sufficient disk space."
             )
     
+    def is_model_downloaded(self, voice_id):
+        """Check if a voice model is already downloaded."""
+        model_file = self.models_dir / f"{voice_id}.onnx"
+        config_file = self.models_dir / f"{voice_id}.onnx.json"
+        return model_file.exists() and config_file.exists()
+    
+    def list_downloaded_voices(self):
+        """
+        List voice models currently downloaded to disk.
+        
+        Returns:
+            List of (voice_id, size_bytes) tuples, sorted by voice_id.
+        """
+        downloaded = []
+        for model_file in sorted(self.models_dir.glob("*.onnx")):
+            voice_id = model_file.stem
+            config_file = self.models_dir / f"{voice_id}.onnx.json"
+            size = model_file.stat().st_size
+            if config_file.exists():
+                size += config_file.stat().st_size
+            downloaded.append((voice_id, size))
+        return downloaded
+    
+    def remove_model(self, voice_id):
+        """
+        Remove a downloaded voice model and its config file.
+        
+        Args:
+            voice_id: Voice identifier (e.g. 'en_US-lessac-medium')
+            
+        Returns:
+            True if any file was removed, False if nothing was found.
+        """
+        model_file = self.models_dir / f"{voice_id}.onnx"
+        config_file = self.models_dir / f"{voice_id}.onnx.json"
+        removed = False
+        for f in (model_file, config_file):
+            if f.exists():
+                f.unlink()
+                removed = True
+        return removed
+    
     def synthesize(self, text, voice_id, volume=1.0, output_path=None, speed=1.0):
         """
         Synthesize text to speech.
