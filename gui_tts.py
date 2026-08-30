@@ -38,9 +38,9 @@ class AudioPlayer:
         except Exception as e:
             print(f"Warning: Could not initialize audio: {e}")
     
-    def synthesize(self, text, voice_id, volume, output_path=None):
+    def synthesize(self, text, voice_id, volume, output_path=None, speed=1.0):
         """Synthesize text to WAV file."""
-        return self.synthesizer.synthesize(text, voice_id, volume, output_path)
+        return self.synthesizer.synthesize(text, voice_id, volume, output_path, speed=speed)
     
     def play_wav(self, wav_path):
         """Play a WAV file using pygame."""
@@ -127,8 +127,8 @@ class TTSApp(tk.Tk):
         controls_frame = ttk.LabelFrame(self, text="Customise")
         controls_frame.pack(fill="x", **pad)
 
-        self.rate_var = tk.IntVar(value=175)
-        self._add_slider(controls_frame, "Rate (words/min)", self.rate_var, 80, 300)
+        self.rate_var = tk.DoubleVar(value=1.0)
+        self._add_slider(controls_frame, "Speed", self.rate_var, 0.5, 2.0, is_float=True)
 
         self.volume_var = tk.DoubleVar(value=1.0)
         self._add_slider(controls_frame, "Volume", self.volume_var, 0.0, 1.0, is_float=True)
@@ -287,7 +287,7 @@ class TTSApp(tk.Tk):
             try:
                 fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
                 os.close(fd)
-                audio_player.synthesize(text, voice_id, self.volume_var.get(), tmp_wav)
+                audio_player.synthesize(text, voice_id, self.volume_var.get(), tmp_wav, speed=self.rate_var.get())
                 audio_player.play_wav(tmp_wav)
                 self.after(0, lambda: self._set_busy(False, "Ready."))
             except Exception as e:
@@ -343,18 +343,18 @@ class TTSApp(tk.Tk):
             return
 
         self._set_busy(True, f"Exporting to {os.path.basename(path)}...")
-        rate = self.rate_var.get()
+        speed = self.rate_var.get()
         volume = self.volume_var.get()
 
         def worker():
             tmp_wav = None
             try:
                 if fmt == "wav":
-                    audio_player.synthesize(content, voice_id, volume, path)
+                    audio_player.synthesize(content, voice_id, volume, path, speed=speed)
                 else:
                     fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
                     os.close(fd)
-                    audio_player.synthesize(content, voice_id, volume, tmp_wav)
+                    audio_player.synthesize(content, voice_id, volume, tmp_wav, speed=speed)
                     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", tmp_wav, path]
                     result = subprocess.run(cmd, capture_output=True, text=True)
                     if result.returncode != 0:

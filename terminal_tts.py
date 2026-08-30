@@ -63,14 +63,14 @@ def print_voice_table(voices, start_index=0):
         print(f"{i:<5}{name[:39]:<40}{vid:<30}")
 
 
-def preview_voice(voice_id, sample_text, volume):
+def preview_voice(voice_id, sample_text, volume, speed=1.0):
     """Speak a short sample through the system's audio output."""
     try:
         fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
         
         # Synthesize the sample using the shared synthesizer
-        synthesizer.synthesize(sample_text, voice_id, volume, tmp_wav)
+        synthesizer.synthesize(sample_text, voice_id, volume, tmp_wav, speed=speed)
         
         # Try to play the audio
         try:
@@ -86,7 +86,7 @@ def preview_voice(voice_id, sample_text, volume):
 # Interactive voice picker
 # --------------------------------------------------------------------------
 
-def choose_voice_interactively(volume):
+def choose_voice_interactively(volume, speed=1.0):
     all_voices = get_voices()
     current = all_voices
     sample_text = "Hello! This is a preview of the currently selected voice."
@@ -122,7 +122,7 @@ def choose_voice_interactively(volume):
             if 0 <= idx < len(current):
                 vid, name = current[idx]
                 print(f"Previewing: {name} ...")
-                preview_voice(vid, sample_text, volume)
+                preview_voice(vid, sample_text, volume, speed)
             else:
                 print("Invalid index.")
             continue
@@ -184,6 +184,7 @@ def main():
     )
     parser.add_argument("--voice", help="Voice ID to use directly (skips interactive picker)")
     parser.add_argument("--volume", type=float, default=1.0, help="Volume, 0.0 to 1.0 (default 1.0)")
+    parser.add_argument("--speed", type=float, default=1.0, help="Speech speed multiplier, e.g. 0.5=half speed, 2.0=2x faster (default 1.0)")
     parser.add_argument("--list-voices", action="store_true", help="List available voices and exit")
     parser.add_argument("--lang", help="Filter --list-voices by language/name substring")
 
@@ -216,7 +217,7 @@ def main():
         voice_id = args.voice
         print(f"Using voice: {voice_id}")
     else:
-        voice_id = choose_voice_interactively(args.volume)
+        voice_id = choose_voice_interactively(args.volume, args.speed)
 
     # --- Determine output path/format ---
     base, _ = os.path.splitext(args.input_file)
@@ -232,15 +233,15 @@ def main():
         output_path = f"{base}.{fmt}"
 
     # --- Synthesize ---
-    print(f"\nGenerating audio with volume={args.volume} ...")
+    print(f"\nGenerating audio with volume={args.volume}, speed={args.speed} ...")
 
     if fmt == "wav":
-        synthesizer.synthesize(text, voice_id, args.volume, output_path)
+        synthesizer.synthesize(text, voice_id, args.volume, output_path, speed=args.speed)
     else:
         fd, tmp_wav = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
         try:
-            synthesizer.synthesize(text, voice_id, args.volume, tmp_wav)
+            synthesizer.synthesize(text, voice_id, args.volume, tmp_wav, speed=args.speed)
             convert_wav_to(tmp_wav, output_path, fmt)
         finally:
             if os.path.exists(tmp_wav):

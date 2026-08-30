@@ -90,7 +90,7 @@ class PiperSynthesizer:
                 f"Make sure you have internet connection and sufficient disk space."
             )
     
-    def synthesize(self, text, voice_id, volume=1.0, output_path=None):
+    def synthesize(self, text, voice_id, volume=1.0, output_path=None, speed=1.0):
         """
         Synthesize text to speech.
         
@@ -99,6 +99,7 @@ class PiperSynthesizer:
             voice_id: Voice identifier (e.g. 'en_US-lessac-medium')
             volume: Volume level (0.0-1.0, default 1.0)
             output_path: Output file path. If None, returns path to temp WAV file.
+            speed: Speech speed multiplier (1.0=normal, 2.0=2x faster, 0.5=half speed)
             
         Returns:
             Path to generated WAV file
@@ -122,6 +123,10 @@ class PiperSynthesizer:
         
         if volume != 1.0:
             cmd.extend(["--volume", str(volume)])
+        
+        if speed != 1.0:
+            # Piper's length-scale is the inverse of speed (lower = faster)
+            cmd.extend(["--length-scale", str(1.0 / speed)])
         
         try:
             print(f"  Synthesizing audio...", flush=True)
